@@ -220,6 +220,7 @@ main#view>.stack.still{animation:none}
 .opt.wrong .tag::after{content:" [X]"}
 .qactions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
 .confbar .btn{min-width:92px}
+.bs-row{text-align:left}.bs-row b{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .guess{display:inline-flex;align-items:center;gap:8px;border:1px dashed var(--dim);padding:6px 14px;background:transparent;color:var(--dim);font-size:13px;min-height:36px;text-transform:uppercase;letter-spacing:.06em}
 .guess[aria-pressed="true"]{border-style:solid;border-color:var(--fg);color:var(--bg);background:var(--fg);text-shadow:none}
 .typein{display:flex;gap:10px;flex-wrap:wrap}
@@ -829,7 +830,7 @@ function updateBar(){
 }
 
 /* ───────── round state ───────── */
-let view="pick", R=null, E=null;
+let view="pick", R=null, E=null, reviewSel=null;
 
 function startRound(mode,opts={}){
   const n=S.settings.roundLen;
@@ -1054,7 +1055,7 @@ ${example}`;
 function render(){
   updateBar();
   const v=$("#view");$("#wrap").classList.toggle("wide",view==="editor");
-  v.innerHTML=view==="pick"?pickHTML():view==="home"?homeHTML():view==="quiz"?quizHTML():view==="summary"?summaryHTML():view==="labs"?labsHTML():view==="lab"?labHTML():editorHTML();
+  v.innerHTML=view==="pick"?pickHTML():view==="home"?homeHTML():view==="quiz"?quizHTML():view==="summary"?summaryHTML():view==="labs"?labsHTML():view==="lab"?labHTML():view==="review"?reviewHTML():editorHTML();
   afterRender();
 }
 function afterRender(){
@@ -1117,7 +1118,7 @@ function homeHTML(){
   <p class="sub">${esc(hello)}</p>
   <details class="drawer" data-drawer="setup" ${UI.open.setup?"open":""}><summary>Sprint setup</summary><div class="drawer-body">${setupHTML("h")}</div></details>
   <div class="cmds">
-    <button class="cmd" data-act="weak"><kbd>W</kbd><b>Weak spots</b><span>${weak?weak+" missed, drill them till they stick":"Nothing missed yet"}</span></button>
+    <button class="cmd" data-act="review"><kbd>W</kbd><b>Blind spots</b><span>${weak?weak+" weak — map them and learn":"Map your weak areas"}</span></button>
     <button class="cmd" data-act="lightning"><kbd>L</kbd><b>Lightning 60s</b><span>${esc(COURSE.lightning)} · best ${bestL()}</span></button>
     <button class="cmd wide" data-act="labs"><kbd>B</kbd><b>Labs</b><span>${labsLine()}</span></button>
   </div>
@@ -1274,6 +1275,31 @@ function calReadoutHTML(){
     ?`When you said <b>${LAB[lv]}</b>, you were right <b>${s.pct}%</b> of the time.`
     :`When you said <b>${LAB[lv]}</b> — building your read… (${s.n}/${Calib.CAL_MIN})`);
   return `<section class="panel stack"><div class="sectionhead"><h2>Your calibration</h2></div>${head}${lines.map(l=>`<p class="silk" style="margin:0">${l}</p>`).join("")}</section>`;
+}
+/* ───────── blind-spots hub ───────── */
+function reviewEntries(){
+  const idToDomain=id=>{const q=resolve(id);return q?q.d:null};
+  const sw=Review.swCounts(S.sw,idToDomain);
+  return Review.rankDomains(DOMAIN_IDS.map(d=>({d,mastery:mastery(d),sureWrong:sw[d]||0})));
+}
+function reviewHTML(){
+  const rows=reviewEntries().map(e=>{
+    const m=e.mastery;
+    const sub=e.status==="not-started"?"Not started yet"
+      :(m.acc!=null?m.acc+"% right · "+m.seen+"/"+m.total+" seen":m.seen+"/"+m.total+" seen");
+    const flag=e.sureWrong>0?`<span class="chip hot">⚠ sure &amp; wrong</span>`:"";
+    const done=(S.lr&&S.lr[COURSE.id+":"+e.d])?`<span class="chip">✓ reviewed</span>`:"";
+    return `<button class="cmd bs-row" data-act="review-domain" data-d="${e.d}"><b>${esc(DOMAINS[e.d].name)} ${flag}${done}</b><span>${sub}</span></button>`;
+  }).join("");
+  return `<div class="stack">
+    <section class="panel stack">
+      <div class="crumb"><button class="btn small ghost" data-act="home-course">← Home</button><span class="silk">Blind spots · ${esc(COURSE.name)}</span></div>
+      <p class="sub">Your weakest areas first. ⚠ marks where you were sure but wrong — fix those first.</p>
+      <div class="cmds">${rows}</div>
+      <div class="row"><button class="btn" data-act="review-weak">Drill my weakest</button></div>
+    </section>
+    ${calReadoutHTML()}
+  </div>`;
 }
 function summaryHTML(){
   const res=R.results,L=R.mode==="lightning";
@@ -1637,6 +1663,8 @@ document.addEventListener("click",e=>{
     case "topic":startRound("sprint",{topic:el.dataset.t});break;
     case "course":switchCourse(el.dataset.c);break;
     case "weak":startRound("weak");break;
+    case "review":reviewSel=null;view="review";render();break;
+    case "review-weak":startRound("weak",{origin:"review"});break;
     case "lightning":startRound("lightning");break;
     case "labs":openLabs();break;
     case "home-course":LAB=null;view="home";render();break;
@@ -1729,7 +1757,7 @@ document.addEventListener("keydown",e=>{
   const onButton=tag==="button";
   if(view==="lab"&&LAB&&LAB.done&&e.key==="Enter"&&!onButton){e.preventDefault();openLab(LAB.lab.id);return}
   if(e.key.toLowerCase()==="m"){S.settings.sound=!S.settings.sound;save("state");updateBar();if(S.settings.sound)SFX.play("ok");return}
-  if(view==="home"&&e.key.toLowerCase()==="w"){startRound("weak");return}
+  if(view==="home"&&e.key.toLowerCase()==="w"){reviewSel=null;view="review";render();return}
   if(view==="home"&&e.key.toLowerCase()==="l"){startRound("lightning");return}
   if(view==="home"&&e.key.toLowerCase()==="b"){openLabs();return}
   if(view==="quiz"&&e.key==="Escape"&&R){if(R.results.length)finish();else{clearTimeout(lightT);view="home";R=null;render()}return}
