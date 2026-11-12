@@ -845,7 +845,7 @@ function startRound(mode,opts={}){
   R={mode,domain:opts.domain||0,topic:opts.topic||"",queue:qs.map(q=>({q,comeback:false})),i:0,results:[],combo:0,maxCombo:0,xp:0,
      timer:mode==="lightning"?SprintSetup.createTimer({mode:"lightning",style:"strict",limitMs:60000})
        :S.settings.timeMode==="perQ"||S.settings.timeMode==="perSprint"?SprintSetup.createTimer({mode:S.settings.timeMode,style:S.settings.timeStyle==="strict"?"strict":"gentle",limitMs:S.settings.timeMode==="perQ"?S.settings.perQSec*1000:S.settings.perSprintMin*60000}):null,
-     unreached:0,flash:null,cur:null,label:opts.label||""};
+     unreached:0,flash:null,cur:null,label:opts.label||"",origin:opts.origin||""};
   view="quiz";loadCur();render();
   lastTick=0;$("#timerLive").textContent="";if(R.timer)tickTimer();
 }
@@ -1282,7 +1282,20 @@ function reviewEntries(){
   const sw=Review.swCounts(S.sw,idToDomain);
   return Review.rankDomains(DOMAIN_IDS.map(d=>({d,mastery:mastery(d),sureWrong:sw[d]||0})));
 }
+function lessonHTML(d){
+  const byC=Lessons.LESSONS[COURSE.id]||{},L=byC[d];
+  const body=L?`<h2>${esc(L.title)}</h2><p>${esc(L.intro)}</p>
+      <div class="blk"><span class="silk">Key points</span><ul>${L.points.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></div>
+      <div class="blk"><span class="silk">Common traps</span><ul>${L.traps.map(t=>`<li>${esc(t)}</li>`).join("")}</ul></div>`
+    :`<h2>${esc(DOMAINS[d].name)}</h2><p class="sub">Lesson coming soon. You can still drill this area to practice.</p>`;
+  return `<div class="stack"><section class="panel stack">
+    <div class="crumb"><button class="btn small ghost" data-act="review">← Blind spots</button><span class="silk">${esc(COURSE.name)}</span></div>
+    ${body}
+    <div class="row"><button class="btn primary" data-act="review-drill" data-d="${d}">Drill this</button><button class="btn ghost" data-act="review">Back</button></div>
+  </section></div>`;
+}
 function reviewHTML(){
+  if(reviewSel!=null)return lessonHTML(reviewSel);
   const rows=reviewEntries().map(e=>{
     const m=e.mastery;
     const sub=e.status==="not-started"?"Not started yet"
@@ -1333,7 +1346,7 @@ function summaryHTML(){
      </div>
      ${timeLines.map(l=>`<p class="silk time-line" style="margin:0">${esc(l)}</p>`).join("")}
      <div class="row">
-       <button class="btn primary go" data-act="${L?"lightning":"again"}">${L?"Go again":"Another sprint"} <kbd>Enter</kbd></button>
+       ${R.origin==="review"?`<button class="btn primary go" data-act="review">Back to blind spots <kbd>Enter</kbd></button>`:`<button class="btn primary go" data-act="${L?"lightning":"again"}">${L?"Go again":"Another sprint"} <kbd>Enter</kbd></button>`}
        ${stillMissed.length?`<button class="btn" data-act="drill-missed">${stillMissed.length===1?"Drill that one again":"Drill these "+stillMissed.length+" again"}</button>`:""}
        <button class="btn ghost" data-act="home">Home</button>
      </div>
@@ -1665,6 +1678,8 @@ document.addEventListener("click",e=>{
     case "weak":startRound("weak");break;
     case "review":reviewSel=null;view="review";render();break;
     case "review-weak":startRound("weak",{origin:"review"});break;
+    case "review-domain":reviewSel=+el.dataset.d;if(!S.lr)S.lr={};S.lr[COURSE.id+":"+reviewSel]=Date.now();save("state");render();break;
+    case "review-drill":startRound("sprint",{domain:+el.dataset.d,origin:"review"});break;
     case "lightning":startRound("lightning");break;
     case "labs":openLabs();break;
     case "home-course":LAB=null;view="home";render();break;
@@ -1762,7 +1777,7 @@ document.addEventListener("keydown",e=>{
   if(view==="home"&&e.key.toLowerCase()==="b"){openLabs();return}
   if(view==="quiz"&&e.key==="Escape"&&R){if(R.results.length)finish();else{clearTimeout(lightT);view="home";R=null;render()}return}
   if(view==="home"&&e.key==="Enter"&&!onButton){e.preventDefault();startRound("sprint");return}
-  if(view==="summary"&&e.key==="Enter"&&!onButton){e.preventDefault();if(R.mode==="lightning")startRound("lightning");else startRound(R.mode==="weak"?"weak":"sprint",{domain:R.domain,topic:R.topic});return}
+  if(view==="summary"&&e.key==="Enter"&&!onButton){e.preventDefault();if(R.origin==="review"){reviewSel=null;view="review";render();return}if(R.mode==="lightning")startRound("lightning");else startRound(R.mode==="weak"?"weak":"sprint",{domain:R.domain,topic:R.topic});return}
   if(view!=="quiz"||!R||!R.cur)return;
   const c=R.cur;
   if(!c.answered){
