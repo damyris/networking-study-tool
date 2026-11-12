@@ -1119,6 +1119,7 @@ function homeHTML(){
     <button class="cmd" data-act="lightning"><kbd>L</kbd><b>Lightning 60s</b><span>${esc(COURSE.lightning)} · best ${bestL()}</span></button>
     <button class="cmd wide" data-act="labs"><kbd>B</kbd><b>Labs</b><span>${labsLine()}</span></button>
   </div>
+  ${calReadoutHTML()}
 
   <details class="drawer" data-drawer="domains" ${UI.open.domains?"open":""}><summary>Domains</summary><div class="drawer-body">
     <div class="domains">${DOMAIN_IDS.map(d=>{const m=mastery(d);return `
@@ -1259,6 +1260,19 @@ function flashHTML(){
 }
 
 function gradeOf(r,n){const p=n?r/n:0;return p===1?"S":p>=.85?"A":p>=.7?"B":p>=.5?"C":"D"}
+/* Plain-language calibration readout. Hidden entirely until there is some
+   confidence data to report; below CAL_MIN per level it shows a "building" line. */
+function calReadoutHTML(){
+  const LAB={sure:"Sure",likely:"Likely",guess:"Guess"};
+  const stats=["sure","likely","guess"].map(lv=>[lv,Calib.calStat(S.cal,lv)]);
+  const totalN=stats.reduce((a,[,s])=>a+s.n,0);
+  if(totalN===0&&(!S.sw||!S.sw.length))return "";
+  const head=(S.sw&&S.sw.length)?`<p style="margin:0;font-weight:600">You were sure but wrong on <b>${S.sw.length}</b>.</p>`:"";
+  const lines=stats.map(([lv,s])=>s.pct!=null
+    ?`When you said <b>${LAB[lv]}</b>, you were right <b>${s.pct}%</b> of the time.`
+    :`When you said <b>${LAB[lv]}</b> — building your read… (${s.n}/${Calib.CAL_MIN})`);
+  return `<section class="panel stack"><div class="sectionhead"><h2>Your calibration</h2></div>${head}${lines.map(l=>`<p class="silk" style="margin:0">${l}</p>`).join("")}</section>`;
+}
 function summaryHTML(){
   const res=R.results,L=R.mode==="lightning";
   const firsts=res.filter(r=>!r.comeback),right=firsts.filter(r=>r.ok).length;
@@ -1296,8 +1310,9 @@ function summaryHTML(){
        <button class="btn ghost" data-act="home">Home</button>
      </div>
    </section>
+   ${calReadoutHTML()}
    ${missed.length?`<section class="panel"><div class="sectionhead"><h2>Review</h2><span class="silk">${stillMissed.length?"Still shaky: "+stillMissed.length:"All fixed"}</span></div>
-     ${missed.map(m=>`<div class="miss"><span class="silk">D${m.q.d} · ${esc(m.q.t||"")}${m.timedOut?` <span class="chip hot">TIME'S UP</span>`:""}</span><div>${esc(m.q.q)}</div><div class="a">${esc(correctText(m.q))}</div><div>${esc(m.q.x||"")}</div>${m.q.h?`<div class="h">${esc(m.q.h)}</div>`:""}</div>`).join("")}
+     ${missed.map(m=>`<div class="miss"><span class="silk">${m.conf==="sure"?`<span class="chip hot">YOU WERE SURE</span> `:""}D${m.q.d} · ${esc(m.q.t||"")}${m.timedOut?` <span class="chip hot">TIME'S UP</span>`:""}</span><div>${esc(m.q.q)}</div><div class="a">${esc(correctText(m.q))}</div><div>${esc(m.q.x||"")}</div>${m.q.h?`<div class="h">${esc(m.q.h)}</div>`:""}</div>`).join("")}
    </section>`:""}
   </div>`;
 }
