@@ -219,6 +219,7 @@ main#view>.stack.still{animation:none}
 .opt.right .tag::after{content:" [OK]"}
 .opt.wrong .tag::after{content:" [X]"}
 .qactions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
+.confbar .btn{min-width:92px}
 .guess{display:inline-flex;align-items:center;gap:8px;border:1px dashed var(--dim);padding:6px 14px;background:transparent;color:var(--dim);font-size:13px;min-height:36px;text-transform:uppercase;letter-spacing:.06em}
 .guess[aria-pressed="true"]{border-style:solid;border-color:var(--fg);color:var(--bg);background:var(--fg);text-shadow:none}
 .typein{display:flex;gap:10px;flex-wrap:wrap}
@@ -1165,10 +1166,30 @@ function quizHTML(){
   const ticket=q.ticket?`<div class="ticket"><span class="silk">Help-desk ticket</span><q>${esc(q.ticket)}</q></div>`:"";
   return `${top}<div class="card">${chips}${ticket}<p class="qtext">${esc(q.q)}</p>${bodyHTML(c)}${L?flashHTML():c.answered?feedbackHTML(c):""}</div>`;
 }
+/* is there a committable answer assembled for this question yet? */
+function answerReady(c){
+  const q=c.q;
+  if(q.type==="mc")return c.picked.length===1;
+  if(q.type==="multi")return c.picked.length>=1;
+  if(q.type==="order")return c.picked.length===q.o.length;
+  if(q.type==="input")return !!(c.input||"").trim();
+  return false;
+}
+/* the three-way confidence submit; shown only before feedback, never in Lightning */
+function confBar(c){
+  if(c.answered||R.mode==="lightning")return "";
+  const dis=answerReady(c)?"":"disabled";
+  const clear=c.q.type==="order"&&c.picked.length?`<button class="btn small ghost" data-act="clear">Start over</button>`:"";
+  return `<div class="qactions confbar">`+
+    `<button class="btn primary" data-act="commit" data-conf="sure" ${dis}>Sure <kbd>S</kbd></button>`+
+    `<button class="btn" data-act="commit" data-conf="likely" ${dis}>Likely <kbd>L</kbd></button>`+
+    `<button class="btn" data-act="commit" data-conf="guess" ${dis}>Guess <kbd>G</kbd></button>`+
+    clear+`</div>`;
+}
 function bodyHTML(c){
   const q=c.q;
   if(q.type==="input"){
-    return `<form class="typein" data-form="typein"><input id="typein" type="text" inputmode="text" autocomplete="off" placeholder="Type your answer" ${c.answered?"disabled":""} aria-label="Your answer"><button class="btn primary" ${c.answered?"disabled":""}>Check <kbd>Enter</kbd></button></form>`;
+    return `<form class="typein" data-form="typein"><input id="typein" type="text" inputmode="text" autocomplete="off" placeholder="Type your answer" ${c.answered?"disabled":""} aria-label="Your answer"></form>${confBar(c)}`;
   }
   const isRight=i=>q.type==="mc"?i===q.a:q.type==="multi"?q.a.includes(i):false;
   const btns=c.order.map((oi,pos)=>{
@@ -1184,12 +1205,7 @@ function bodyHTML(c){
     else if(sel)cls+=" sel";
     return `<button class="${cls}" data-act="pick" data-i="${oi}" ${c.answered?"disabled":""} aria-pressed="${sel}"><span class="k">${LETTERS[pos]}</span><span>${esc(q.o[oi])}</span>${tag}</button>`;
   }).join("");
-  let actions="";
-  if(!c.answered&&R.mode!=="lightning"){
-    const needCheck=q.type==="multi"||q.type==="order";
-    actions=`<div class="qactions">${needCheck?`<button class="btn primary" data-act="check" ${q.type==="order"&&c.picked.length<q.o.length?"disabled":""}>Check <kbd>Enter</kbd></button>`:""}${q.type==="order"&&c.picked.length?`<button class="btn small ghost" data-act="clear">Start over</button>`:""}<button class="guess" data-act="guess" aria-pressed="${c.guess}">I'm guessing <kbd>G</kbd></button></div>`;
-  }else if(!c.answered&&q.type==="multi"){actions=`<div class="qactions"><button class="btn primary" data-act="check">Check <kbd>Enter</kbd></button></div>`}
-  return `<div class="opts">${btns}</div>${actions}`;
+  return `<div class="opts">${btns}</div>${confBar(c)}`;
 }
 function correctText(q){
   if(q.type==="mc")return q.o[q.a];
