@@ -506,6 +506,8 @@ body.ph-paper.crt::after{display:none}
 <script src="labs.js"></script>
 <script src="labs-data.js"></script>
 <script src="calibration.js"></script>
+<script src="review.js"></script>
+<script src="lessons.js"></script>
 <script>
 (function(){
 "use strict";
@@ -615,7 +617,7 @@ function applyLook(){
 const UI={open:{}};
 
 /* ───────── state ───────── */
-const defState=()=>({v:1,stats:{},xp:0,days:{},recent:[],lightningBest:0,lbest:{},bestCombo:0,labs:{},cal:{sure:{c:0,w:0},likely:{c:0,w:0},guess:{c:0,w:0}},sw:[],settings:{roundLen:10,goal:30,autoNext:false,sound:true,crt:true,phosphor:"rice",course:"core1",
+const defState=()=>({v:1,stats:{},xp:0,days:{},recent:[],lightningBest:0,lbest:{},bestCombo:0,labs:{},cal:{sure:{c:0,w:0},likely:{c:0,w:0},guess:{c:0,w:0}},sw:[],lr:{},settings:{roundLen:10,goal:30,autoNext:false,sound:true,crt:true,phosphor:"rice",course:"core1",
   timeMode:"off",perQSec:60,perSprintMin:10,timeStyle:"gentle",qTypes:["mc","multi","order","input"],mixPreset:"exam",mix:{}},updatedAt:0});
 const defBank=()=>({v:1,overrides:{},added:{},hidden:[],updatedAt:0});
 let S=Object.assign(defState(),LS.get("c1b.state")||{});
@@ -789,7 +791,7 @@ function buildSprint(n,domain,topic){
   const pool=SprintSetup.filterByTypes(allQuestions(),st.qTypes).filter(q=>(!domain||q.d===domain)&&(!topic||TOPICS[topic].match(q))&&factor(q.d)>0);
   const keep=k=>SprintSetup.keepGen(k,COURSE,st,mixed);
   const genCount=genKinds(domain,topic,st.qTypes,keep).length?Math.max(1,Math.round(n*0.2)):0;
-  const scored=pool.map(q=>({q,w:weightFor(q.id,now)*factor(q.d)*(recent.has(q.id)?0.12:1)}));
+  const scored=pool.map(q=>({q,w:weightFor(q.id,now)*factor(q.d)*(recent.has(q.id)?0.12:1)*(S.sw.includes(q.id)?Review.SW_BOOST:1)}));
   const picks=weighted(scored,n-genCount);
   for(let i=0;i<genCount;i++){
     let g=null;for(let t=0;t<8&&(!g||recent.has(g.id)||picks.some(p=>p.id===g.id||(p.gen&&p.t===g.t))||factor(g.d)===0);t++)g=randomGen(domain,topic,st.qTypes,keep);
