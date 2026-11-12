@@ -43,6 +43,19 @@ test("rankDomains sorts worst-first; unseen sinks below a weak domain", () => {
   assert.ok(order.indexOf(2) < order.indexOf(3), "weak outranks not-started");
 });
 
+test("a sure-wrong on an unseen (generated-question) domain still ranks and labels weak", () => {
+  // mastery() excludes generated g: questions, so a domain whose only activity is a
+  // sure-wrong generated item has seen===0 while sureWrong>0; it must not read "not started".
+  const m = { acc: null, pct: 0, seen: 0, total: 12 };
+  assert.ok(R.blindSpotScore(m, 1) > 0, "sure-wrong unseen domain must score above zero");
+  assert.equal(R.domainStatus(m, 1), "weak");
+  const order = R.rankDomains([
+    { d: 1, mastery: { acc: null, pct: 0, seen: 0, total: 12 }, sureWrong: 0 }, // truly untouched
+    { d: 2, mastery: { acc: null, pct: 0, seen: 0, total: 12 }, sureWrong: 1 }, // sure-wrong generated
+  ]).map(e => e.d);
+  assert.equal(order[0], 2, "the sure-wrong domain must outrank the untouched one");
+});
+
 test("SW_BOOST is the single tunable selection multiplier", () => {
   assert.equal(typeof R.SW_BOOST, "number");
   assert.ok(R.SW_BOOST > 1);

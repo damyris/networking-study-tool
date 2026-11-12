@@ -23,7 +23,9 @@ function swCounts(sw,idToDomain){
    then the accuracy gap, then the Leitner-box gap. */
 function blindSpotScore(mastery,sureWrongCount){
   const m=mastery||{};
-  if(!m.seen)return 0;
+  /* A sure-wrong can land on a generated question, which mastery() doesn't count
+     as "seen"; such a domain is still a real blind spot, so don't zero it out. */
+  if(!m.seen&&!sureWrongCount)return 0;
   const accGap=100-(m.acc==null?100:m.acc);
   const boxGap=100-(m.pct||0);
   return (sureWrongCount||0)*1000+accGap*10+boxGap;
@@ -33,8 +35,8 @@ function blindSpotScore(mastery,sureWrongCount){
    makes it "weak" regardless of accuracy; a solid seen domain is "ok". */
 function domainStatus(mastery,sureWrongCount){
   const m=mastery||{};
-  if(!m.seen)return "not-started";
   if(sureWrongCount>0)return "weak";
+  if(!m.seen)return "not-started";
   if(m.acc!=null&&m.acc>=SOLID)return "ok";
   return "weak";
 }
