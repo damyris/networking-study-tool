@@ -219,6 +219,7 @@ main#view>.stack.still{animation:none}
 .opt.right .tag::after{content:" [OK]"}
 .opt.wrong .tag::after{content:" [X]"}
 .qactions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
+.confbar .btn{min-width:92px}
 .guess{display:inline-flex;align-items:center;gap:8px;border:1px dashed var(--dim);padding:6px 14px;background:transparent;color:var(--dim);font-size:13px;min-height:36px;text-transform:uppercase;letter-spacing:.06em}
 .guess[aria-pressed="true"]{border-style:solid;border-color:var(--fg);color:var(--bg);background:var(--fg);text-shadow:none}
 .typein{display:flex;gap:10px;flex-wrap:wrap}
@@ -504,6 +505,7 @@ body.ph-paper.crt::after{display:none}
 <script src="sprint.js"></script>
 <script src="labs.js"></script>
 <script src="labs-data.js"></script>
+<script src="calibration.js"></script>
 <script>
 (function(){
 "use strict";
@@ -613,12 +615,13 @@ function applyLook(){
 const UI={open:{}};
 
 /* ───────── state ───────── */
-const defState=()=>({v:1,stats:{},xp:0,days:{},recent:[],lightningBest:0,lbest:{},bestCombo:0,labs:{},settings:{roundLen:10,goal:30,autoNext:false,sound:true,crt:true,phosphor:"rice",course:"core1",
+const defState=()=>({v:1,stats:{},xp:0,days:{},recent:[],lightningBest:0,lbest:{},bestCombo:0,labs:{},cal:{sure:{c:0,w:0},likely:{c:0,w:0},guess:{c:0,w:0}},sw:[],settings:{roundLen:10,goal:30,autoNext:false,sound:true,crt:true,phosphor:"rice",course:"core1",
   timeMode:"off",perQSec:60,perSprintMin:10,timeStyle:"gentle",qTypes:["mc","multi","order","input"],mixPreset:"exam",mix:{}},updatedAt:0});
 const defBank=()=>({v:1,overrides:{},added:{},hidden:[],updatedAt:0});
 let S=Object.assign(defState(),LS.get("c1b.state")||{});
 let B=Object.assign(defBank(),LS.get("c1b.bank")||{});
 S.settings=Object.assign(defState().settings,S.settings||{});
+S=Calib.normalizeState(S);
 useCourse(S.settings.course);
 /* Lightning high score per course. Core 1 keeps the original field so old saves carry over. */
 const bestL=()=>COURSE.id==="core1"?S.lightningBest:(S.lbest||{})[COURSE.id]||0;
@@ -862,19 +865,21 @@ function grade(){
   else if(q.type==="order")ok=c.picked.length===q.o.length&&c.picked.every((v,i)=>v===i);
   else if(q.type==="input"){const v=norm(c.input);ok=!!v&&(q.ans||[]).some(a=>norm(a)===v)}
   c.answered=true;c.ok=ok;
+  const conf=c.conf;c.guess=conf==="guess";
   // stats
   const st=S.stats[q.id]||(S.stats[q.id]={s:0,c:0,w:0,b:null,l:0});
   st.s++;st.l=Date.now();
   if(ok){st.c++;st.b=c.comeback?1:c.guess?1:(st.b==null?2:Math.min(5,st.b+1))}else{st.w++;st.b=0}
   S.days[today()]=(S.days[today()]||0)+1;
   S.recent=[q.id,...S.recent.filter(x=>x!==q.id)].slice(0,30);
+  // calibration tally + sure-and-wrong set (skipped when no confidence was captured, e.g. lightning/timeout)
+  if(conf){Calib.applyConfidence(S.cal,conf,ok);S.sw=Calib.sureWrongUpdate(S.sw,q.id,conf,ok);}
   // combo + xp
   let gain=0;const lvBefore=level(),goalBefore=(S.days[today()]||0)-1<S.settings.goal;
-  if(ok){R.combo++;R.maxCombo=Math.max(R.maxCombo,R.combo);gain=c.guess?5:c.comeback?8:10+Math.min(R.combo-1,10)*2}
-  else R.combo=0;
-  if(R.mode==="lightning")gain=ok?5+Math.min(R.combo,10):0;
+  if(ok){R.combo++;R.maxCombo=Math.max(R.maxCombo,R.combo)}else R.combo=0;
+  gain=Calib.xpGain({ok,mode:R.mode,conf,comeback:c.comeback,combo:R.combo});
   c.gain=gain;R.xp+=gain;S.xp+=gain;S.bestCombo=Math.max(S.bestCombo,R.maxCombo);
-  R.results.push({id:q.id,q,ok,guess:c.guess,comeback:c.comeback,picked:c.picked.slice(),input:c.input,ms,overMs,timedOut:!!c.timedOut});
+  R.results.push({id:q.id,q,ok,conf,guess:c.guess,comeback:c.comeback,picked:c.picked.slice(),input:c.input,ms,overMs,timedOut:!!c.timedOut});
   // missed? bring it back three questions later
   if(!ok&&R.mode!=="lightning"&&!c.comeback&&!R.queue.slice(R.i+1).some(x=>x.q.id===q.id)){
     R.queue.splice(Math.min(R.i+4,R.queue.length),0,{q,comeback:true});
@@ -1114,6 +1119,7 @@ function homeHTML(){
     <button class="cmd" data-act="lightning"><kbd>L</kbd><b>Lightning 60s</b><span>${esc(COURSE.lightning)} · best ${bestL()}</span></button>
     <button class="cmd wide" data-act="labs"><kbd>B</kbd><b>Labs</b><span>${labsLine()}</span></button>
   </div>
+  ${calReadoutHTML()}
 
   <details class="drawer" data-drawer="domains" ${UI.open.domains?"open":""}><summary>Domains</summary><div class="drawer-body">
     <div class="domains">${DOMAIN_IDS.map(d=>{const m=mastery(d);return `
@@ -1163,10 +1169,30 @@ function quizHTML(){
   const ticket=q.ticket?`<div class="ticket"><span class="silk">Help-desk ticket</span><q>${esc(q.ticket)}</q></div>`:"";
   return `${top}<div class="card">${chips}${ticket}<p class="qtext">${esc(q.q)}</p>${bodyHTML(c)}${L?flashHTML():c.answered?feedbackHTML(c):""}</div>`;
 }
+/* is there a committable answer assembled for this question yet? */
+function answerReady(c){
+  const q=c.q;
+  if(q.type==="mc")return c.picked.length===1;
+  if(q.type==="multi")return c.picked.length>=1;
+  if(q.type==="order")return c.picked.length===q.o.length;
+  if(q.type==="input")return !!(c.input||"").trim();
+  return false;
+}
+/* the three-way confidence submit; shown only before feedback, never in Lightning */
+function confBar(c){
+  if(c.answered||R.mode==="lightning")return "";
+  const dis=answerReady(c)?"":"disabled";
+  const clear=c.q.type==="order"&&c.picked.length?`<button class="btn small ghost" data-act="clear">Start over</button>`:"";
+  return `<div class="qactions confbar">`+
+    `<button class="btn primary" data-act="commit" data-conf="sure" ${dis}>Sure <kbd>S</kbd></button>`+
+    `<button class="btn" data-act="commit" data-conf="likely" ${dis}>Likely <kbd>L</kbd></button>`+
+    `<button class="btn" data-act="commit" data-conf="guess" ${dis}>Guess <kbd>G</kbd></button>`+
+    clear+`</div>`;
+}
 function bodyHTML(c){
   const q=c.q;
   if(q.type==="input"){
-    return `<form class="typein" data-form="typein"><input id="typein" type="text" inputmode="text" autocomplete="off" placeholder="Type your answer" ${c.answered?"disabled":""} aria-label="Your answer"><button class="btn primary" ${c.answered?"disabled":""}>Check <kbd>Enter</kbd></button></form>`;
+    return `<form class="typein" data-form="typein"><input id="typein" type="text" inputmode="text" autocomplete="off" placeholder="Type your answer" ${c.answered?"disabled":""} aria-label="Your answer"></form>${confBar(c)}`;
   }
   const isRight=i=>q.type==="mc"?i===q.a:q.type==="multi"?q.a.includes(i):false;
   const btns=c.order.map((oi,pos)=>{
@@ -1182,12 +1208,7 @@ function bodyHTML(c){
     else if(sel)cls+=" sel";
     return `<button class="${cls}" data-act="pick" data-i="${oi}" ${c.answered?"disabled":""} aria-pressed="${sel}"><span class="k">${LETTERS[pos]}</span><span>${esc(q.o[oi])}</span>${tag}</button>`;
   }).join("");
-  let actions="";
-  if(!c.answered&&R.mode!=="lightning"){
-    const needCheck=q.type==="multi"||q.type==="order";
-    actions=`<div class="qactions">${needCheck?`<button class="btn primary" data-act="check" ${q.type==="order"&&c.picked.length<q.o.length?"disabled":""}>Check <kbd>Enter</kbd></button>`:""}${q.type==="order"&&c.picked.length?`<button class="btn small ghost" data-act="clear">Start over</button>`:""}<button class="guess" data-act="guess" aria-pressed="${c.guess}">I'm guessing <kbd>G</kbd></button></div>`;
-  }else if(!c.answered&&q.type==="multi"){actions=`<div class="qactions"><button class="btn primary" data-act="check">Check <kbd>Enter</kbd></button></div>`}
-  return `<div class="opts">${btns}</div>${actions}`;
+  return `<div class="opts">${btns}</div>${confBar(c)}`;
 }
 function correctText(q){
   if(q.type==="mc")return q.o[q.a];
@@ -1239,6 +1260,19 @@ function flashHTML(){
 }
 
 function gradeOf(r,n){const p=n?r/n:0;return p===1?"S":p>=.85?"A":p>=.7?"B":p>=.5?"C":"D"}
+/* Plain-language calibration readout. Hidden entirely until there is some
+   confidence data to report; below CAL_MIN per level it shows a "building" line. */
+function calReadoutHTML(){
+  const LAB={sure:"Sure",likely:"Likely",guess:"Guess"};
+  const stats=["sure","likely","guess"].map(lv=>[lv,Calib.calStat(S.cal,lv)]);
+  const totalN=stats.reduce((a,[,s])=>a+s.n,0);
+  if(totalN===0&&(!S.sw||!S.sw.length))return "";
+  const head=(S.sw&&S.sw.length)?`<p style="margin:0;font-weight:600">You were sure but wrong on <b>${S.sw.length}</b>.</p>`:"";
+  const lines=stats.map(([lv,s])=>s.pct!=null
+    ?`When you said <b>${LAB[lv]}</b>, you were right <b>${s.pct}%</b> of the time.`
+    :`When you said <b>${LAB[lv]}</b> — building your read… (${s.n}/${Calib.CAL_MIN})`);
+  return `<section class="panel stack"><div class="sectionhead"><h2>Your calibration</h2></div>${head}${lines.map(l=>`<p class="silk" style="margin:0">${l}</p>`).join("")}</section>`;
+}
 function summaryHTML(){
   const res=R.results,L=R.mode==="lightning";
   const firsts=res.filter(r=>!r.comeback),right=firsts.filter(r=>r.ok).length;
@@ -1276,8 +1310,9 @@ function summaryHTML(){
        <button class="btn ghost" data-act="home">Home</button>
      </div>
    </section>
+   ${calReadoutHTML()}
    ${missed.length?`<section class="panel"><div class="sectionhead"><h2>Review</h2><span class="silk">${stillMissed.length?"Still shaky: "+stillMissed.length:"All fixed"}</span></div>
-     ${missed.map(m=>`<div class="miss"><span class="silk">D${m.q.d} · ${esc(m.q.t||"")}${m.timedOut?` <span class="chip hot">TIME'S UP</span>`:""}</span><div>${esc(m.q.q)}</div><div class="a">${esc(correctText(m.q))}</div><div>${esc(m.q.x||"")}</div>${m.q.h?`<div class="h">${esc(m.q.h)}</div>`:""}</div>`).join("")}
+     ${missed.map(m=>`<div class="miss"><span class="silk">${m.conf==="sure"?`<span class="chip hot">YOU WERE SURE</span> `:""}D${m.q.d} · ${esc(m.q.t||"")}${m.timedOut?` <span class="chip hot">TIME'S UP</span>`:""}</span><div>${esc(m.q.q)}</div><div class="a">${esc(correctText(m.q))}</div><div>${esc(m.q.x||"")}</div>${m.q.h?`<div class="h">${esc(m.q.h)}</div>`:""}</div>`).join("")}
    </section>`:""}
   </div>`;
 }
@@ -1623,9 +1658,8 @@ document.addEventListener("click",e=>{
     case "drill-missed":{const ids=[...new Set(R.results.filter(r=>!r.ok).map(r=>r.id))];startRound("list",{list:ids});break}
     case "end":if(R&&R.results.length)finish();else{clearTimeout(lightT);view="home";R=null;render()}break;
     case "pick":onPick(+el.dataset.i);break;
-    case "check":if(R&&R.cur&&!R.cur.answered&&(R.cur.picked.length||R.cur.q.type==="input"))grade();break;
+    case "commit":{if(R&&R.cur&&!R.cur.answered){R.cur.conf=el.dataset.conf;if(R.cur.q.type==="input"){const i=$("#typein");if(i)R.cur.input=i.value;}if(answerReady(R.cur))grade();}break;}
     case "clear":R.cur.picked=[];render();break;
-    case "guess":R.cur.guess=!R.cur.guess;el.setAttribute("aria-pressed",R.cur.guess);break;
     case "next":next();break;
     case "ai-explain":askClaude();break;
     case "ai-stop":if(R&&R.cur&&R.cur.ai&&R.cur.ai.ac)R.cur.ai.ac.abort();break;
@@ -1655,13 +1689,13 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("submit",e=>{
   const f=e.target.dataset.form;if(!f)return;e.preventDefault();
-  if(f==="typein"){const i=$("#typein");if(R&&R.cur&&!R.cur.answered){R.cur.input=i.value;if(i.value.trim())grade()}}
+  if(f==="typein"){/* confidence is committed via the Sure/Likely/Guess buttons, never a bare Enter */}
   else if(f==="ai-follow"){const i=$("#aiFollow");askClaude(i.value)}
   else if(f==="ed"){saveDraft();render()}
 });
 document.addEventListener("input",e=>{
   const t=e.target;
-  if(t.id==="typein"&&R&&R.cur)R.cur.input=t.value;
+  if(t.id==="typein"&&R&&R.cur){R.cur.input=t.value;if(R.cur.q.type==="input"&&!R.cur.answered){const on=answerReady(R.cur);document.querySelectorAll('.confbar [data-act="commit"]').forEach(btn=>{btn.disabled=!on});}}
   else if(t.dataset.lab!=null&&t.dataset.t==="text")labSet(t.dataset.lab,t.value.trim()?t.value:undefined);
   else if(t.dataset.filter==="text"){E.filter.text=t.value;const l=$("#edList");const pos=t.selectionStart;render();const s=$("#edSearch");if(s){s.focus();s.setSelectionRange(pos,pos)}}
   else if(t.dataset.io)E.io=t.value;
@@ -1681,7 +1715,7 @@ document.addEventListener("drop",e=>{const z=e.target.closest&&e.target.closest(
 document.addEventListener("toggle",e=>{const d=e.target;if(d.dataset&&d.dataset.drawer)UI.open[d.dataset.drawer]=d.open},true);
 function onPick(i){
   const c=R&&R.cur;if(!c||c.answered)return;const q=c.q;
-  if(q.type==="mc"){c.picked=[i];grade();return}
+  if(q.type==="mc"){c.picked=[i];SFX.play("tick");render();return}
   if(q.type==="multi"){c.picked=c.picked.includes(i)?c.picked.filter(x=>x!==i):[...c.picked,i];SFX.play("tick");render();return}
   if(q.type==="order"){c.picked=c.picked.includes(i)?c.picked.filter(x=>x!==i):[...c.picked,i];SFX.play("tick");render();return}
 }
@@ -1705,8 +1739,8 @@ document.addEventListener("keydown",e=>{
     const k=e.key.toLowerCase();let idx=-1;
     if(/^[1-8]$/.test(k))idx=+k-1;else if(/^[a-h]$/.test(k)&&k!=="g"&&k!=="e")idx=LETTERS.toLowerCase().indexOf(k);
     if(idx>=0&&c.order&&idx<c.order.length){e.preventDefault();onPick(c.order[idx]);return}
-    if(k==="g"&&R.mode!=="lightning"){c.guess=!c.guess;const g=$(".guess");if(g)g.setAttribute("aria-pressed",c.guess);return}
-    if(e.key==="Enter"&&!onButton&&(c.q.type==="multi"||c.q.type==="order")&&c.picked.length){e.preventDefault();grade()}
+    const cf={s:"sure",l:"likely",g:"guess"}[k];
+    if(cf&&R.mode!=="lightning"&&c.q.type!=="input"&&answerReady(c)){e.preventDefault();c.conf=cf;grade();return}
   }else if(R.mode!=="lightning"){
     if((e.key==="Enter"||e.key==="ArrowRight")&&!onButton){e.preventDefault();next()}
     else if(e.key.toLowerCase()==="e"&&AI&&!(c.ai&&c.ai.busy)){e.preventDefault();askClaude()}
