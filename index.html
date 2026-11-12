@@ -220,6 +220,7 @@ main#view>.stack.still{animation:none}
 .opt.wrong .tag::after{content:" [X]"}
 .qactions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px}
 .confbar .btn{min-width:92px}
+.bs-row{text-align:left}.bs-row b{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .guess{display:inline-flex;align-items:center;gap:8px;border:1px dashed var(--dim);padding:6px 14px;background:transparent;color:var(--dim);font-size:13px;min-height:36px;text-transform:uppercase;letter-spacing:.06em}
 .guess[aria-pressed="true"]{border-style:solid;border-color:var(--fg);color:var(--bg);background:var(--fg);text-shadow:none}
 .typein{display:flex;gap:10px;flex-wrap:wrap}
@@ -506,6 +507,8 @@ body.ph-paper.crt::after{display:none}
 <script src="labs.js"></script>
 <script src="labs-data.js"></script>
 <script src="calibration.js"></script>
+<script src="review.js"></script>
+<script src="lessons.js"></script>
 <script>
 (function(){
 "use strict";
@@ -615,7 +618,7 @@ function applyLook(){
 const UI={open:{}};
 
 /* ───────── state ───────── */
-const defState=()=>({v:1,stats:{},xp:0,days:{},recent:[],lightningBest:0,lbest:{},bestCombo:0,labs:{},cal:{sure:{c:0,w:0},likely:{c:0,w:0},guess:{c:0,w:0}},sw:[],settings:{roundLen:10,goal:30,autoNext:false,sound:true,crt:true,phosphor:"rice",course:"core1",
+const defState=()=>({v:1,stats:{},xp:0,days:{},recent:[],lightningBest:0,lbest:{},bestCombo:0,labs:{},cal:{sure:{c:0,w:0},likely:{c:0,w:0},guess:{c:0,w:0}},sw:[],lr:{},settings:{roundLen:10,goal:30,autoNext:false,sound:true,crt:true,phosphor:"rice",course:"core1",
   timeMode:"off",perQSec:60,perSprintMin:10,timeStyle:"gentle",qTypes:["mc","multi","order","input"],mixPreset:"exam",mix:{}},updatedAt:0});
 const defBank=()=>({v:1,overrides:{},added:{},hidden:[],updatedAt:0});
 let S=Object.assign(defState(),LS.get("c1b.state")||{});
@@ -789,7 +792,7 @@ function buildSprint(n,domain,topic){
   const pool=SprintSetup.filterByTypes(allQuestions(),st.qTypes).filter(q=>(!domain||q.d===domain)&&(!topic||TOPICS[topic].match(q))&&factor(q.d)>0);
   const keep=k=>SprintSetup.keepGen(k,COURSE,st,mixed);
   const genCount=genKinds(domain,topic,st.qTypes,keep).length?Math.max(1,Math.round(n*0.2)):0;
-  const scored=pool.map(q=>({q,w:weightFor(q.id,now)*factor(q.d)*(recent.has(q.id)?0.12:1)}));
+  const scored=pool.map(q=>({q,w:weightFor(q.id,now)*factor(q.d)*(recent.has(q.id)?0.12:1)*(S.sw.includes(q.id)?Review.SW_BOOST:1)}));
   const picks=weighted(scored,n-genCount);
   for(let i=0;i<genCount;i++){
     let g=null;for(let t=0;t<8&&(!g||recent.has(g.id)||picks.some(p=>p.id===g.id||(p.gen&&p.t===g.t))||factor(g.d)===0);t++)g=randomGen(domain,topic,st.qTypes,keep);
@@ -827,7 +830,7 @@ function updateBar(){
 }
 
 /* ───────── round state ───────── */
-let view="pick", R=null, E=null;
+let view="pick", R=null, E=null, reviewSel=null;
 
 function startRound(mode,opts={}){
   const n=S.settings.roundLen;
@@ -842,7 +845,7 @@ function startRound(mode,opts={}){
   R={mode,domain:opts.domain||0,topic:opts.topic||"",queue:qs.map(q=>({q,comeback:false})),i:0,results:[],combo:0,maxCombo:0,xp:0,
      timer:mode==="lightning"?SprintSetup.createTimer({mode:"lightning",style:"strict",limitMs:60000})
        :S.settings.timeMode==="perQ"||S.settings.timeMode==="perSprint"?SprintSetup.createTimer({mode:S.settings.timeMode,style:S.settings.timeStyle==="strict"?"strict":"gentle",limitMs:S.settings.timeMode==="perQ"?S.settings.perQSec*1000:S.settings.perSprintMin*60000}):null,
-     unreached:0,flash:null,cur:null,label:opts.label||""};
+     unreached:0,flash:null,cur:null,label:opts.label||"",origin:opts.origin||""};
   view="quiz";loadCur();render();
   lastTick=0;$("#timerLive").textContent="";if(R.timer)tickTimer();
 }
@@ -1052,7 +1055,7 @@ ${example}`;
 function render(){
   updateBar();
   const v=$("#view");$("#wrap").classList.toggle("wide",view==="editor");
-  v.innerHTML=view==="pick"?pickHTML():view==="home"?homeHTML():view==="quiz"?quizHTML():view==="summary"?summaryHTML():view==="labs"?labsHTML():view==="lab"?labHTML():editorHTML();
+  v.innerHTML=view==="pick"?pickHTML():view==="home"?homeHTML():view==="quiz"?quizHTML():view==="summary"?summaryHTML():view==="labs"?labsHTML():view==="lab"?labHTML():view==="review"?reviewHTML():editorHTML();
   afterRender();
 }
 function afterRender(){
@@ -1115,7 +1118,7 @@ function homeHTML(){
   <p class="sub">${esc(hello)}</p>
   <details class="drawer" data-drawer="setup" ${UI.open.setup?"open":""}><summary>Sprint setup</summary><div class="drawer-body">${setupHTML("h")}</div></details>
   <div class="cmds">
-    <button class="cmd" data-act="weak"><kbd>W</kbd><b>Weak spots</b><span>${weak?weak+" missed, drill them till they stick":"Nothing missed yet"}</span></button>
+    <button class="cmd" data-act="review"><kbd>W</kbd><b>Blind spots</b><span>${weak?weak+" weak — map them and learn":"Map your weak areas"}</span></button>
     <button class="cmd" data-act="lightning"><kbd>L</kbd><b>Lightning 60s</b><span>${esc(COURSE.lightning)} · best ${bestL()}</span></button>
     <button class="cmd wide" data-act="labs"><kbd>B</kbd><b>Labs</b><span>${labsLine()}</span></button>
   </div>
@@ -1273,6 +1276,44 @@ function calReadoutHTML(){
     :`When you said <b>${LAB[lv]}</b> — building your read… (${s.n}/${Calib.CAL_MIN})`);
   return `<section class="panel stack"><div class="sectionhead"><h2>Your calibration</h2></div>${head}${lines.map(l=>`<p class="silk" style="margin:0">${l}</p>`).join("")}</section>`;
 }
+/* ───────── blind-spots hub ───────── */
+function reviewEntries(){
+  const idToDomain=id=>{const q=resolve(id);return q?q.d:null};
+  const sw=Review.swCounts(S.sw,idToDomain);
+  return Review.rankDomains(DOMAIN_IDS.map(d=>({d,mastery:mastery(d),sureWrong:sw[d]||0})));
+}
+function lessonHTML(d){
+  const byC=Lessons.LESSONS[COURSE.id]||{},L=byC[d];
+  const body=L?`<h2>${esc(L.title)}</h2><p>${esc(L.intro)}</p>
+      <div class="blk"><span class="silk">Key points</span><ul>${L.points.map(p=>`<li>${esc(p)}</li>`).join("")}</ul></div>
+      <div class="blk"><span class="silk">Common traps</span><ul>${L.traps.map(t=>`<li>${esc(t)}</li>`).join("")}</ul></div>`
+    :`<h2>${esc(DOMAINS[d].name)}</h2><p class="sub">Lesson coming soon. You can still drill this area to practice.</p>`;
+  return `<div class="stack"><section class="panel stack">
+    <div class="crumb"><button class="btn small ghost" data-act="review">← Blind spots</button><span class="silk">${esc(COURSE.name)}</span></div>
+    ${body}
+    <div class="row"><button class="btn primary" data-act="review-drill" data-d="${d}">Drill this</button><button class="btn ghost" data-act="review">Back</button></div>
+  </section></div>`;
+}
+function reviewHTML(){
+  if(reviewSel!=null)return lessonHTML(reviewSel);
+  const rows=reviewEntries().map(e=>{
+    const m=e.mastery;
+    const sub=e.status==="not-started"?"Not started yet"
+      :(m.acc!=null?m.acc+"% right · "+m.seen+"/"+m.total+" seen":m.seen+"/"+m.total+" seen");
+    const flag=e.sureWrong>0?`<span class="chip hot">⚠ sure &amp; wrong</span>`:"";
+    const done=(S.lr&&S.lr[COURSE.id+":"+e.d])?`<span class="chip">✓ reviewed</span>`:"";
+    return `<button class="cmd bs-row" data-act="review-domain" data-d="${e.d}"><b>${esc(DOMAINS[e.d].name)} ${flag}${done}</b><span>${sub}</span></button>`;
+  }).join("");
+  return `<div class="stack">
+    <section class="panel stack">
+      <div class="crumb"><button class="btn small ghost" data-act="home-course">← Home</button><span class="silk">Blind spots · ${esc(COURSE.name)}</span></div>
+      <p class="sub">Your weakest areas first. ⚠ marks where you were sure but wrong — fix those first.</p>
+      <div class="cmds">${rows}</div>
+      <div class="row"><button class="btn" data-act="review-weak">Drill my weakest</button></div>
+    </section>
+    ${calReadoutHTML()}
+  </div>`;
+}
 function summaryHTML(){
   const res=R.results,L=R.mode==="lightning";
   const firsts=res.filter(r=>!r.comeback),right=firsts.filter(r=>r.ok).length;
@@ -1305,7 +1346,7 @@ function summaryHTML(){
      </div>
      ${timeLines.map(l=>`<p class="silk time-line" style="margin:0">${esc(l)}</p>`).join("")}
      <div class="row">
-       <button class="btn primary go" data-act="${L?"lightning":"again"}">${L?"Go again":"Another sprint"} <kbd>Enter</kbd></button>
+       ${R.origin==="review"?`<button class="btn primary go" data-act="review">Back to blind spots <kbd>Enter</kbd></button>`:`<button class="btn primary go" data-act="${L?"lightning":"again"}">${L?"Go again":"Another sprint"} <kbd>Enter</kbd></button>`}
        ${stillMissed.length?`<button class="btn" data-act="drill-missed">${stillMissed.length===1?"Drill that one again":"Drill these "+stillMissed.length+" again"}</button>`:""}
        <button class="btn ghost" data-act="home">Home</button>
      </div>
@@ -1635,6 +1676,10 @@ document.addEventListener("click",e=>{
     case "topic":startRound("sprint",{topic:el.dataset.t});break;
     case "course":switchCourse(el.dataset.c);break;
     case "weak":startRound("weak");break;
+    case "review":reviewSel=null;view="review";render();break;
+    case "review-weak":startRound("weak",{origin:"review"});break;
+    case "review-domain":reviewSel=+el.dataset.d;if(!S.lr)S.lr={};S.lr[COURSE.id+":"+reviewSel]=Date.now();save("state");render();break;
+    case "review-drill":startRound("sprint",{domain:+el.dataset.d,origin:"review"});break;
     case "lightning":startRound("lightning");break;
     case "labs":openLabs();break;
     case "home-course":LAB=null;view="home";render();break;
@@ -1727,12 +1772,12 @@ document.addEventListener("keydown",e=>{
   const onButton=tag==="button";
   if(view==="lab"&&LAB&&LAB.done&&e.key==="Enter"&&!onButton){e.preventDefault();openLab(LAB.lab.id);return}
   if(e.key.toLowerCase()==="m"){S.settings.sound=!S.settings.sound;save("state");updateBar();if(S.settings.sound)SFX.play("ok");return}
-  if(view==="home"&&e.key.toLowerCase()==="w"){startRound("weak");return}
+  if(view==="home"&&e.key.toLowerCase()==="w"){reviewSel=null;view="review";render();return}
   if(view==="home"&&e.key.toLowerCase()==="l"){startRound("lightning");return}
   if(view==="home"&&e.key.toLowerCase()==="b"){openLabs();return}
   if(view==="quiz"&&e.key==="Escape"&&R){if(R.results.length)finish();else{clearTimeout(lightT);view="home";R=null;render()}return}
   if(view==="home"&&e.key==="Enter"&&!onButton){e.preventDefault();startRound("sprint");return}
-  if(view==="summary"&&e.key==="Enter"&&!onButton){e.preventDefault();if(R.mode==="lightning")startRound("lightning");else startRound(R.mode==="weak"?"weak":"sprint",{domain:R.domain,topic:R.topic});return}
+  if(view==="summary"&&e.key==="Enter"&&!onButton){e.preventDefault();if(R.origin==="review"){reviewSel=null;view="review";render();return}if(R.mode==="lightning")startRound("lightning");else startRound(R.mode==="weak"?"weak":"sprint",{domain:R.domain,topic:R.topic});return}
   if(view!=="quiz"||!R||!R.cur)return;
   const c=R.cur;
   if(!c.answered){
