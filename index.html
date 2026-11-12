@@ -504,6 +504,7 @@ body.ph-paper.crt::after{display:none}
 <script src="sprint.js"></script>
 <script src="labs.js"></script>
 <script src="labs-data.js"></script>
+<script src="calibration.js"></script>
 <script>
 (function(){
 "use strict";
@@ -613,12 +614,13 @@ function applyLook(){
 const UI={open:{}};
 
 /* ───────── state ───────── */
-const defState=()=>({v:1,stats:{},xp:0,days:{},recent:[],lightningBest:0,lbest:{},bestCombo:0,labs:{},settings:{roundLen:10,goal:30,autoNext:false,sound:true,crt:true,phosphor:"rice",course:"core1",
+const defState=()=>({v:1,stats:{},xp:0,days:{},recent:[],lightningBest:0,lbest:{},bestCombo:0,labs:{},cal:{sure:{c:0,w:0},likely:{c:0,w:0},guess:{c:0,w:0}},sw:[],settings:{roundLen:10,goal:30,autoNext:false,sound:true,crt:true,phosphor:"rice",course:"core1",
   timeMode:"off",perQSec:60,perSprintMin:10,timeStyle:"gentle",qTypes:["mc","multi","order","input"],mixPreset:"exam",mix:{}},updatedAt:0});
 const defBank=()=>({v:1,overrides:{},added:{},hidden:[],updatedAt:0});
 let S=Object.assign(defState(),LS.get("c1b.state")||{});
 let B=Object.assign(defBank(),LS.get("c1b.bank")||{});
 S.settings=Object.assign(defState().settings,S.settings||{});
+S=Calib.normalizeState(S);
 useCourse(S.settings.course);
 /* Lightning high score per course. Core 1 keeps the original field so old saves carry over. */
 const bestL=()=>COURSE.id==="core1"?S.lightningBest:(S.lbest||{})[COURSE.id]||0;
