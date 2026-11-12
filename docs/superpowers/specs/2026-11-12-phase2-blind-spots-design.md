@@ -70,6 +70,12 @@ The chosen shape is a **Blind-Spots Hub** (Approach C below): a dedicated screen
 
 6. **Light new state (optional, additive).** `S.lr` — a map of `"<course>:<domain>" → timestamp` recording when a lesson was last read, used only to show a subtle "reviewed" marker in the hub. Defaulted empty via the existing normalize path; absence is harmless. If this proves to be scope creep during planning, it can be dropped without affecting the core loop.
 
+## Lesson sourcing and verification (owner decisions + Claude's method)
+
+- **Source (owner's call): Wikipedia.** Each lesson's foundational facts are drafted from Wikipedia.
+- **Method (Claude's call, vetoable):** every lesson is cross-checked against the app's own question explanations (`x`) so the teaching targets exactly what Cert Bench tests and the learner's actual weak spots. Where Wikipedia's framing and CompTIA's expected exam answer diverge (common on specifics like RAID drive minimums, port numbers, or version-specific objectives for 220-1201 / 220-1202), that line is flagged inline for the owner rather than resolved by guess.
+- **Merge gate (owner's call; defaulted to Claude's recommendation): hold the PR for owner sign-off.** Because merging auto-deploys to the live study tool via GitHub Pages, the PR does **not** merge until the owner has fact-checked the lessons. The PR description lays out all 9 lesson drafts (with any flagged divergences) for that review. Lesson content is a reviewable deliverable distinct from code: the code path (hub, `review.js`, loop) can be reviewed and is mergeable on its own merits, but the combined PR holds for the owner's content sign-off before merge. (Owner may instead choose "ship flagged," where lessons go live behind a visible "draft — verify before relying on this" marker.)
+
 ## What's left to the builder (the plan)
 
 - Exact shakiness-score formula and tie-breaks (within the constraints above), to be pinned down with tests in the plan.
